@@ -1,5 +1,46 @@
 == Unfuck Monitoring
 
-A repository to catalog, define, and document useful metrics for monitoring
+A repository to catalog, define, and document useful metrics for monitoring.
 
+The goals of this repository will be to produce some form of declaration of
+metrics that can be selectively executed in a metrics collection agent.
+Therefore we will need to define a format that various tools can implement.
+We will attempt to find existing standards and formats to build on top of.
+
+=== Objectives
+
+To recap the objectives of this repository, we intend to:
+
+* define metrics that would be helpful to be captured for a variety of
+  distributed systems deployed in production today.
+* describe what each metric offers in terms of visibility and benefit.
+* note how we can capture each metric on each supported OS/Platform.
+* limitations of the metric both from a conceptual and gathering
+  implementation perspective.
+* define a standardized format for metric gathering tools to support to
+  build "executable" metrics gathering specifications.
+
+=== Status
+
+This is at the inception phase. Please be paitent while I get URLs, structure,
+conventions, formats, and examples setup.
+
+=== License
+
+The documentation will be released under the
+http://creativecommons.org/licenses/by-nc-sa/4.0/:[Creative Commons
+Attribution-NonCommercial-ShareAlike 4.0 International License] license.
+All code released or made public in this repository will be made available
+under the BSD 3-clause license (see LICENSE) for more details.
+
+image:https://i.creativecommons.org/l/by-sa/4.0/88x31.png[width=88,height=31,alt="Creative Commons License"]
+
+.Metadata for project and license
+|====
+| Project URL | http://functionalo.ps/unfuckmonitoring
+| Source URL | https://github.com/functionalops/unfuckmonitoring
+| Author | Susan Potter
+| Contributors | See CONTRIBUTORS
+| Documentation License | http://creativecommons.org/licenses/by-nc-sa/4.0/[CC-BY-SA 4.0 International]
+| Source Code License | link:LICENSE[BSD 3-clause license]
 
