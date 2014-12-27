@@ -31,7 +31,7 @@ The documentation will be released under the
 http://creativecommons.org/licenses/by-nc-sa/4.0/:[Creative Commons
 Attribution-NonCommercial-ShareAlike 4.0 International License] license.
 All code released or made public in this repository will be made available
-under the BSD 3-clause license (see LICENSE) for more details.
+under the BSD 3-clause license (see link:LICENSE[]) for more details.
 
 image:https://i.creativecommons.org/l/by-sa/4.0/88x31.png[width=88,height=31,alt="Creative Commons License"]
 
@@ -40,7 +40,7 @@ image:https://i.creativecommons.org/l/by-sa/4.0/88x31.png[width=88,height=31,alt
 | Project URL | http://functionalo.ps/unfuckmonitoring
 | Source URL | https://github.com/functionalops/unfuckmonitoring
 | Author | Susan Potter
-| Contributors | See CONTRIBUTORS
+| Contributors | See link:CONTRIBUTORS.adoc[Contributors]
 | Documentation License | http://creativecommons.org/licenses/by-nc-sa/4.0/[CC-BY-SA 4.0 International]
 | Source Code License | link:LICENSE[BSD 3-clause license]
 

@@ -1,4 +1,5 @@
 .List of contributors
 ====
 | Name | Email | Github | Twitter | Description of contribution
+| Susan Potter | me@susanpotter.net | mbbx6spp | @SusanPotter | Launched project
 

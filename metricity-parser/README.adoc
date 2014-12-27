@@ -1,0 +1,101 @@
+== parser
+
+=== Prerequisites
+
+1. Java 8
+2. Scala 2.11.4
+3. SBT 0.13.0+
+
+=== Getting Started
+
+Inside the root directory of the repository:
+
+1. Launch SBT:
+
+        $ sbt
+
+2. Compile everything and run all tests:
+
+        > test
+
+3. Open `sbt console` and run this example:
+
+        scala> import scala.language.reflectiveCalls
+        import scala.language.reflectiveCalls
+        scala> import scala.io.Source
+        import scala.io.Source
+        scala> import functionalops.metricity.parser._
+        import functionalops.metricity.parser._
+        scala> metricityProper.parseSource(Source.fromFile("src/main/resources/analytics-api.service"))
+        res0: functionalops.metricity.parser.MetricityAstNode = ServiceNode(IdentifierNode(blablacorp),IdentifierNode(analytics),IdentifierNode(analytics-api),VersionNode(1.4.0-g234gfa99),List())
+
+=== Examples
+
+You can see a few examples to see the proper dialect examples of service
+definitions here:
+
+* link:src/main/resources/analytics-api.service[] - defines a service with a
+  namespace (`blablacorp`), a component (`analytics`), a service id
+  (`analytics-api`), and a version (`1.4.0-g...`). Only the namespace and
+  service id are required.
+* link:src/main/resources/search-recommender.service[] - defines a service with
+  a namesapce, component, and service id.
+* link:src/main/resources/secretsharing-api.service[] -
+
+=== Objectives
+
+Using a definition language like that defined in this reference implementation
+of a packrat parser for it, the aims are the following:
+
+* ability to identify changes between service versions in metrics gathering
+* declaratively define the metrics for a service, as definitively as possible
+* "provision" any metric in the metric collector you are using upon
+  release/deploy of an artifact from this declarative format. This could be
+  any one or more of a number of different monitoring solutions from in house
+  OSS to internal/proprietary to hosted/cloud solutions like DD. This is
+  especially helpful if you are transitioning between monitoring soltuions or
+  are doing a proof of concept of a new solution, or different product lines
+  in your organization use different monitoring tools but you want to be able
+  to do a metric audit on all the services more simply.
+* ability to "unprovision" old metrics discarded in new release/deploy
+* have ability to use multiple metrics solutions for the same metric, possibly
+  one as backup or during migration periods
+* enable sharing of metric definitions across projects
+
+=== Language Specification
+
+TODO
+
+While I define the specification of the proper dialect of this definition
+language you can read the Scala source for a guide:
+link:src/main/scala/functionalops/functions.scala[]
+
+
+=== Contributing: Code Structure
+
+I use a less common structure to my code than many Scala projects so here is
+the code structure outline and explanation:
+
+* **Types:** I use a _more_ functional style of coding in Scala and as a
+  result start coding from _*closed*_ algebraic data types (usually sum,
+  product, and recursive types), which define the basic elements of the
+  domain. These traits (types) and corresponding case classes/objects (value
+  constructors) can be found in the `Types` trait for namespacing. See below
+  for description of namespace organization.
+* **"Classes":**  this does not refer to OO classes but rather typeclass
+  definitions. I have a trait named `Classes` which contains typeclass
+  definitions used to extend our basic sum, product, and recursive data
+  types.
+* **"Instances":** again this does not refer to "instances" of OO classes,
+  rather this refers to implementations of typeclasses for specific types.
+  In the trait named `Instances` you will find a number of implicits that
+  can be mixed in to different contexts later the allows Scala to find
+  the correct instance definition for a specific type of a typeclass based
+  on the scope it is introduced. More specific scopes have higher precedence
+  which means the default `parser` package instance definitions can be
+  overridden in applicaation/client code at a higher level if necessary.
+* **Functions:** I have a trait named `Functions`, which along side the
+  interface to our core types and typeclasses provides the public API for
+  the `parser` library/toolkit.
+* **Namespacing:** You will note I am using traits for namespacing primitives
+  that I then use to mixin to objects used for external package namespacing.
