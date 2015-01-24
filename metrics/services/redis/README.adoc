@@ -1,0 +1,205 @@
+== Redis metrics
+
+[NOTE]
+====
+This was originally written and vetted while using Redis 2.4 in production.
+The usage of Redis was primarily for the simplest data stuctures and
+operations that Redis 2.4 provided in the default distribution. It was used
+as an in-memory store for perishable data of long running background jobs
+or a more structured data cache. If you are using it in a different way
+some of these suggestions may be less valuable or require different analysis.
+Your mileage may vary.
+====
+
+This document is an outline of metrics available from Redis or collected from
+the system. This can help us:
+
+* monitor the health Redis (to allow us to alert on operational failure cases)
+* evaluate Redis' runtime performance (e.g. answer the questions _how is Redis
+  performing right now?_, _what was Redis' performance profile N hours ago or
+  X days ago between time T1 and T2?_, etc.)
+* highlight growth problem areas (e.g. for capacity planning around physical
+  or virtual resources such as memory, CPU, disk space, IOPs, etc.)
+
+This document should explain the scope and limitations of the metrics described.
+It should also explain why these metrics are relevant (if not obvious) and
+what other related metrics should be considered along side them and why.
+
+Much of the metrics described here can be captured via the `INFO [section]`
+Redis command, but some critical measurements useful for understanding
+latencies must be captured externally from the Redis process itself.
+
+== Health Monitoring Metrics
+
+The following values of specific metrics in the output of `INFO` commands in
+Redis indicate malfunction at different levels:
+
+* `rejected_connections` - Number of connections rejected because of
+  maxclients limit
+* `master_link_down_since_seconds` - On a slave node if this is greater than
+  zero this indicates the master is unreachable from the slave.
+* `connected_slaves` - On the master when this value decreases from expected
+  value (currently 2 slaves) this indicates a problem with the master
+  connectivity with the slaves either node failure or network partition.
+* `aof_last_bgrewrite_status` - when value is not "ok" this would be worth
+  alerting on.
+* `evicted_keys` - number of key evictions due to maxmemory limit being hit.
+  When exceeding a certain value this could warn and then alert. This
+  requires data collection to determine threshold values.
+* `connected_clients` - sometimes this can serve as a warning signal if a
+  constant number of permanently connected clients are expected or if a hard
+  minimum or maximum number of clients are ever expected to connect.
+
+In addition to the above system level failure scenarios, monitoring queue
+sizes, etc. via meaningful application/evironment-specific thresholds should
+also be monitored for health.
+
+== Performance and Planning Metrics
+
+=== Memory metrics
+
+One of the most critical parts to measure of Redis Servers are three key
+memory related metrics. Namely:
+
+* `used_memory` - the number of bytes of memory allocated via Redis server's
+  allocator to store data
+* `used_memory_rss` - the number of bytes representing resident set size
+  (RSS) as witnessed by the OS
+* `mem_fragmentation_ratio` - the ratio of the above two measurements, which
+  is useful to determine how much fragmentation of memory is occurring.
+
+=== Persistence metrics
+
+Useful persistence latency metrics to measure and track would be:
+
+* `rdb_last_bgsave_time_sec` - duration of last RDB BGSAVE in seconds
+* `aof_last_rewrite_time_sec` - duration of last AOF rewrite in seconds
+* `aof_current_size` - current size of AOF in bytes
+
+=== Stats Metrics
+
+We can use the following in conjunction with other external measurements to
+understand internal buffer/queue sizes which are not measured or reported by
+Redis' `INFO` directly:
+
+* `total_commands_processed`
+* `instantaneous_ops_per_sec`
+* `connected_clients`
+* `blocked_clients` - Number of clients pending on a blocking call
+
+Since Redis is single threaded, commands are processed sequentially and the
+`total_commands_processed` count (before and after a period or after a
+command is sent and processed) allows us to determine command latencies.
+
+Measuring external latency can be done via the `--latency` option in
+`redis-cli` utility.
+
+An increase in measured external latency and a significant increase of
+commands processed would indicate an increase in commands queued for
+processing in Redis which is an indirect measure of how well Redis server is
+keeping up with demand. In another case, if the measured external latency of
+a Redis command was not met with a corresponding influx of commands processed
+this indicates that one or more slow commands dominated Redis' resources
+during this time. See 'Command Statistics' below to see how to check which
+slow commands are being run the most for the other higher latency case.
+
+The above direct and derived metrics can tell us if the application using
+Redis can take advantage of techniques like pipelining commands or using
+multi-argument commands to limit the number of commands being sent in
+separate client connections/sessions.
+
+
+=== Slowlog
+
+The slowlog option can be tweaked to find slow commands that take over a
+specific amount of time to respond to clients. To access this slowlog we can
+run `slowlog get` as a command and update the `slowlog-log-slower-than` X
+configuration option (where X is time in microsecods).
+
+Example output of a `slowlog get` command:
+
+[source]
+----
+127.0.0.1:6379> slowlog get
+ 1) 1) (integer) 140
+    2) (integer) 1420091176
+    3) (integer) 11377
+    4) 1) "del"
+       2) "7159d825-b821-45a7-af59:object:22764"
+ 2) 1) (integer) 139
+    2) (integer) 1420004476
+    3) (integer) 10846
+    4) 1) "del"
+       2) "2bba3641-1ba5-4626-ba99:object:11818"
+ 3) 1) (integer) 138
+    2) (integer) 1420004476
+    3) (integer) 17493
+    4) 1) "zrem"
+       2) "2bba3641-1ba5-4626-ba99:word:XC68OERGZVA"
+       3) "11816"
+----
+
+This can be used in conjunction with 'Command Statistics' below to identify
+which commands the application should limit or avoid completely.
+
+=== Command Statistics
+
+This will offer a sneak peak at how well specific commands in Redis are
+performing on average. Increases or decreases in the `usec_per_call` can inform
+us about data shape/density changes and similar variations. Format would look
+like `cmdstat_info:calls=3,usec=98,usec_per_call=32.67` as an example.
+
+=== Keyspace Statistics
+
+The keyspace section of information will provide general information about
+the number of keys and expirations in each database of the Redis server
+instance. To understand hits/misses and their ratio we could track:
+
+* `keyspace_hits`
+* `keyspace_misses`
+
+This would tell us if the application is too eagerly requesting data in Redis
+before it is initialized or setup (e.g. upon account creation or even
+application server initialization upon new deployments, etc.).
+
+=== Evictions
+
+A metric of interest reported by Redis server via the `INFO` command is
+evicted_keys. When seeing a value consistently greater than zero (the
+difference between time intervals) this can tell us we may need to do any one
+of these things (the correct remedy depends on other information):
+
+* Tweak maxmemory and/or maxmemory-policy configuration settings.
+* Partition data across Redis instance. We can determine from small
+  deviations in eviction rates whether we are starting to hit limits that may
+  require development effort to partition data/keys in Redis ahead of time
+  before major production issues.
+
+=== Client Inspection
+
+You can find more information about the currently connected clients with
+the `CLIENT LIST` Redis command. This might show something like this:
+
+[source]
+----
+addr=10.120.19.239:63986 fd=49 name=bgworker-a-1 age=1793122 idle=1793122 flags=N db=0 sub=0 psub=0 multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=info
+addr=10.120.19.14:37325 fd=13 name=bgworker-a-2 age=1793086 idle=1556 flags=N db=0 sub=0 psub=0 multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=mget
+addr=10.120.19.14:37328 fd=15 name=bgworker-a-3 age=1793086 idle=481 flags=N db=0 sub=0 psub=0 multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=ttl
+addr=10.120.19.14:37331 fd=18 name=bgworker-b-1 age=1793086 idle=1817 flags=N db=0 sub=0 psub=0 multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=srem
+addr=10.120.19.239:63990 fd=50 name=bgworker-b-2 age=1793122 idle=1793122 flags=N db=0 sub=0 psub=0 multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=info
+addr=10.120.19.235:39175 fd=19 name=bgworker-b-3 age=580131 idle=38 flags=N db=0 sub=0 psub=0 multi=-1 qbuf=0 qbuf-free=0 obl=0 oll=0 omem=0 events=r cmd=mget
+----
+
+Assuming you make all long running Redis connections name themslves using
+`SET CLIENTNAME clientname` after successful connection to each Redis instance
+it uses, then you will find troubleshooting easier.
+
+Make sure there is a naming scheme that all teams that might use the same
+Redis instance in any environment are aware of and follow.
+
+As you can see above there are two components (`a` and `b`) of bgworkers
+that have 3 instances each.
+
+Since the client connections are named we can see quickly which instances
+and components are connected and we might be able to monitor around number
+of application specific client connection counts.
