@@ -1,0 +1,297 @@
+== Postgres metrics
+
+This document will outline the metrics from PostgreSQL that should be
+collected with a bried explanation of what it can tell us about the
+server or full configuration.
+
+== Health Monitoring Metrics
+
+=== Basic health
+
+* Connect via TCP on port (default: 5432) (`nc -z locahost 5432`)
+* `echo "SELECT 1;\q" | nc localhost 5432`
+
+=== Replication health
+
+See `pg_stat_replication` table for more information, e.g.
+
+[source,sql]
+----
+SELECT
+    client_addr,
+    sent_offset - (
+        replay_offset - (sent_xlog - replay_xlog) * 255 * 16 ^ 6 ) AS byte_lag
+FROM (
+    SELECT
+        client_addr,
+        ('x' || lpad(split_part(sent_location,   '/', 1), 8, '0'))::bit(32)::bigint AS sent_xlog,
+        ('x' || lpad(split_part(replay_location, '/', 1), 8, '0'))::bit(32)::bigint AS replay_xlog,
+        ('x' || lpad(split_part(sent_location,   '/', 2), 8, '0'))::bit(32)::bigint AS sent_offset,
+        ('x' || lpad(split_part(replay_location, '/', 2), 8, '0'))::bit(32)::bigint AS replay_offset
+    FROM pg_stat_replication
+----
+
+Instead of comparing timestamp of last transaction applied to slave and comparing
+time distance between `now()` and it, it is preferrable to compare location
+distances since a false positive could be generated in the former case when
+activity declines during off-hours.
+
+So to check xlog location distances:
+
+[source,sql]
+----
+SELECT
+CASE
+  WHEN pg_last_xlog_receive_location() = pg_last_xlog_replay_location()
+  THEN 0
+  ELSE EXTRACT (EPOCH FROM now() - pg_last_xact_replay_timestamp())
+END AS log_delay;
+----
+
+This will need to be run on the slave itself.
+
+=== Database health
+
+* Monitor number of backends currently connected to database:
+  `SELECT numbackends FROM pg_stat_database WHERE datname = 'DATNAME';`
+* Rate of increase of rollbacks might be useful to monitor:
+  `SELECT xact_rollback FROM pg_stat_database WHERE datname = 'DATNAME';`
+* Monitor deadlocks on a database:
+  `SELECT deadlocks FROM pg_stat_database WHERE datname = 'DATNAME';`
+* Monitor conflicts (queries canceled due to conflicts with recovery) in database:
+  `SELECT conflicts FROM pg_stat_database WHERE datname = 'DATNAME';`
+
+Or grab all these in one query for all databases:
+
+[source,sql]
+----
+SELECT
+  datname AS database,
+  numbackends AS backends,
+  xact_rollback AS rollbacks,
+  deadlocks,
+  conflicts
+FROM pg_stat_database;
+----
+
+=== Index health
+
+To monitor the health of indicies the following metrics should be considered:
+
+* `idx_scan` - is the number of index scans initiated on this index
+* `idx_tup_read` - is the number of index entries returned by scans on this index
+* `idx_tup_fetch` - is the number of live table rows fetched by simple index scans
+
+== Performance and Planning Metrics
+
+=== Memory metrics
+
+=== Persistence metrics
+
+Size. Matters. (For capacity planning.)
+
+[source,sql]
+----
+select pg_database_size('DBNAME');
+select pg_total_relation_size('TABLENAME');
+
+--pretty versions for human inspect
+select pg_size_pretty(pg_database_size('DBNAME'));
+select pg_size_pretty(pg_total_relation_size('TABLENAME'));
+----
+
+=== Stats metrics
+
+=== Slowlog
+
+=== Cache metrics
+
+* Monitor disk blocks found in buffer cache metrics:
+  `SELECT blks_hit FROM pg_stat_database;`
+
+=== Usage metrics
+
+Below we can collect the number of operations per table (cumulative since
+last reset):
+
+[source,sql]
+----
+SELECT
+  seq_scan AS seq_scans,
+  idx_scan AS idx_scans,
+  seq_tup_read AS seq_rows_read,
+  idx_tup_fetch AS idx_rows_fetched,
+  n_tup_ins AS rows_inserted,
+  n_tup_upd AS rows_updated,
+  n_tup_del AS rows_deleted,
+  n_tup_hot_upd AS rows_hot_updated,
+  n_live_tup AS est_live_rows,
+  n_dead_tup AS est_dead_rows,
+  vacuum_count,
+  autovacuum_count,
+  analyze_count,
+  autoanalyze_count
+FROM pg_stat_user_tables;
+----
+
+This can advise you of tables that may need queries optimized before it
+becomes problematic. In particular, you might want to monitor the ratio of
+`seq_scan` vs `idx_scan` operations and/or the rate of change of the number
+of rows read from a sequential scan (on larger tables especially) as well as
+rate of change of the number of rows fetched from index scans.
+
+After running large deletion jobs you could check `n_dead_tup` (the
+estimated daed rows) to see when all older queries are finished with those
+rowsi (as per MVCC) and can now be `VACUUM FULL`-ed if space is needed. If
+space isn't needed urgently I would let PostgreSQL handle it.
+
+A DBA should be able to advise on which metrics collected above would be
+used for performance optimizations and how.
+
+References:
+
+* link:http://dba.stackexchange.com/questions/21014/postgresql-initial-database-size/21507#21507[Initial Database Size]
+* link:http://www.postgresql.org/docs/current/static/mvcc-intro.html[Postgres MVCC Intro]
+* link:http://www.postgresql.org/docs/current/interactive/monitoring-stats.html[Monitoring Stats]
+
+=== Table usage
+
+To monitor the disk and buffer blocks read for different usage patterns
+for a table the following query on `pg_statio_all_tables` should be captured
+periodically to chart trends over time:
+
+[source,sql]
+----
+SELECT
+  heap_blks_read,
+  heap_blks_hit,
+  idx_blks_read,
+  idx_blks_hit,
+  toast_blks_read, -- relevant when storing large values
+  toast_blks_hit, -- relevant when storing large values
+  tidx_blks_read, -- relevant when storing large values
+  tidx_blks_hit -- relevant when storing large values
+FROM pg_statio_all_tables;
+----
+
+Check out additional material on:
+
+* link:http://www.postgresql.org/docs/current/interactive/storage-toast.html[The Oversized-Attribute Storage Technique]
+
+=== Index usage
+
+Drill down to the index level with this query (similar to above but index
+rather than table level):
+
+[source,sql]
+----
+SELECT
+  idx_blks_read,
+  idx_blks_hit
+FROM pg_statio_all_indexes;
+----
+
+== Troubleshooting info
+
+List all active queries:
+
+[source,sql]
+----
+SELECT datname, usename, pid, client_addr, client_port, query_start, query
+FROM pg_stat_activity
+WHERE state = 'active' AND pid != pg_backend_pid();
+----
+
+Show count of activity per database:
+
+[source,sql]
+----
+SELECT pg_database.datname, COALESCE(count,0) AS count
+FROM pg_database LEFT JOIN (
+  SELECT datname, count(1)
+  FROM pg_stat_activity
+  WHERE pid != pg_backend_pid()
+  GROUP BY datname)
+AS tmp
+ON pg_database.datname=tmp.datname
+WHERE datallowconn
+ORDER BY 1;
+----
+
+Will output something like this:
+
+[source,sql]
+----
+   datname    | count
+--------------+-------
+ postgres     |     0
+ dbname1      |     1
+ template1    |     0
+(3 rows)
+----
+
+List all server processes (corresponds roughly with client connections):
+
+[source,sql]
+----
+
+----
+
+List all autovacuum queries:
+
+[source,sql]
+----
+SELECT state, count(1)
+FROM pg_stat_activity
+WHERE query LIKE 'autovacuum: %'
+GROUP BY state;
+----
+
+Show information on the background writer process's activity:
+
+[source,sql]
+----
+SELECT
+  buffers_checkpoint, buffers_clean, buffers_backend, buffers_alloc,
+  maxwritten_clean, checkpoints_timed, checkpoints_req
+FROM pg_stat_bgwriter;
+----
+
+Show all locks:
+
+[source,sql]
+----
+SELECT
+  lower(mode) AS lmode,
+  count(1)
+FROM pg_locks
+WHERE database IS NOT NULL
+GROUP BY lmode
+ORDER BY 1;
+----
+
+Show oldest prepared transactions:
+
+[source,sql]
+----
+SELECT
+  database,
+  COALESCE(max(extract(epoch FROM CURRENT_TIMESTAMP-prepared)),0) AS duration
+FROM pg_prepared_xacts
+GROUP BY database
+ORDER BY 1;
+----
+
+Count of prepared transactions per database:
+
+[source,sql]
+----
+SELECT
+  database,
+  count(1)
+FROM pg_prepared_xacts
+GROUP BY database
+ORDER BY 1;
+----
+
+
