@@ -43,20 +43,33 @@ service destrucrypt/secrets:api {
 }
   """
 
-  val invalidServiceSpec1 = """
+  val invalidServiceConstruction = """
 service destrucrypt:secrets-api {
 
 }
   """
 
-  "A valid service file" should "parse returning a success value" in {
-    import scala.language.reflectiveCalls
+  val invalidMetricConstruction = """
+service destrucrypt/secrets:api {
+  metric metric.missing.scope {
+
+  }
+}
+  """
+
+  import scala.language.reflectiveCalls
+
+  "A valid service construction with valid metrics" should "return a success value upon parsing" in {
     assert(metricityProper.parse(validServiceSpec).isRight)
   }
 
-  "An invalid service file" should "parse return a failure value" in {
-    import scala.language.reflectiveCalls
-    val result = metricityProper.parse(invalidServiceSpec1)
+  "An invalid service construction" should "return a failure value upon parsing" in {
+    val result = metricityProper.parse(invalidServiceConstruction)
+    assert(result.isLeft)
+  }
+
+  "An invalid metric construction" should "return a failure value upon parsing" in {
+    val result = metricityProper.parse(invalidMetricConstruction)
     assert(result.isLeft)
   }
 }

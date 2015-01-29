@@ -17,6 +17,8 @@ trait ParserTypes {
 
   type ParserResult         = ParserError \/ MetricityAstNode
 
+  type Path                 = String
+
   type ServiceIdentifier    = IdentifierNode
   type NamespaceIdentifier  = IdentifierNode
   type ComponentIdentifier  = IdentifierNode
@@ -74,29 +76,88 @@ trait ParserTypes {
 
   sealed trait MetricCategory
   object MetricCategory {
-    /** Represents a number per time unit (e.g. second) */
+    /**
+      * Represents a number per time unit (e.g. second)
+      */
     case object Rate extends MetricCategory
 
-    /** Number per a given interval */
+    /**
+      * Number per a given interval
+      */
     case object Count extends MetricCategory
 
-    /** Values at each point in time */
+    /**
+      * Values at each point in time
+      */
     case object Gauge extends MetricCategory
 
-    /** A monotonic number that continues increasing until a reset event occurs */
+    /**
+      * A monotonic number that continues increasing until a reset event
+      * occurs
+      */
     case object Counter extends MetricCategory
 
-    /** Represents a UNIX timestamp where we can calculate the age at each point */
+    /**
+      * Represents a UNIX timestamp where we can calculate the age at each
+      * point
+      */
     case object Timestamp extends MetricCategory
   }
 
   sealed trait MetricScope
   object MetricScope {
+    /**
+      * Represents any metric at the environment scope
+      */
     case object EnvironmentScope extends MetricScope
+    /**
+      * Represents any metric at the datacenter scope.
+      * Note: you might have an environment span multiple datacenters.
+      */
     case object DatacenterScope extends MetricScope
+    /**
+      * Represents any metric at the pod scope. A pod might distinguish
+      * category of customers/tenants or might symbolize primary vs
+      * secondary pod for the same customers/tenants. This depends on
+      * how your service defines a pod.
+      */
     case object PodScope extends MetricScope
+    /**
+      * Represents any metric at the host scope.
+      */
     case object HostScope extends MetricScope
+    /**
+      * Represents any metric at the instance scope. You might have multiple
+      * instances of your service running on one host, for example.
+      */
     case object InstanceScope extends MetricScope
+  }
+
+  sealed trait CollectorType
+  object CollectorType {
+    /**
+      * Represents the procfs metric collector type.
+      */
+    private case object Procfs extends CollectorType
+    /**
+      * Represents the command metric collector type.
+      */
+    private case object Command extends CollectorType
+    /**
+      * Represents the sigar metric collector type.
+      */
+    private case object Sigar extends CollectorType
+
+    @inline def procfs: CollectorType   = Procfs
+    @inline def command: CollectorType  = Command
+    @inline def sigar: CollectorType    = Sigar
+
+    def apply(name: String): Option[CollectorType] = name match {
+      case "procfs"   => procfs.some
+      case "command"  => command.some
+      case "sigar"    => sigar.some
+      case _          => none
+    }
   }
 
   sealed trait MetricityAstNode
@@ -110,7 +171,7 @@ trait ParserTypes {
     , component: ComponentIdentifier
     , id: ServiceIdentifier
     , version: Option[Version]
-    , metrics: Seq[MetricNode]) extends MetricityAstNode
+    , elements: Seq[MetricityAstNode]) extends MetricityAstNode
 
   case class MetricNode(
       scope: MetricScope
@@ -119,4 +180,14 @@ trait ParserTypes {
   case class IdentifierNode(text: String) extends MetricityAstNode
   case class VersionNode(text: String) extends MetricityAstNode
   case class StringNode(text: String) extends MetricityAstNode
+  case class IndexNode(index: Int) extends MetricityAstNode
+
+  case class CollectorNode(
+      collectorType: CollectorType
+    , id: MetricIdentifier
+    , attributes: Seq[CollectorNamedValueNode]) extends MetricityAstNode
+  sealed trait CollectorNamedValueNode extends MetricityAstNode
+  case class CollectorPathNamedNode(path: StringNode) extends CollectorNamedValueNode
+  case class CollectorIndexNamedNode(index: IndexNode) extends CollectorNamedValueNode
+  case class CollectorArgumentsNamedNode(args: Seq[StringNode]) extends CollectorNamedValueNode
 }
