@@ -34,7 +34,7 @@ object ParserMain extends SafeApp {
   } yield ()
 
   private def serviceFileName(service: String): String =
-    "src/main/resources/" + service + ".service"
+    "metricity-parser/src/main/resources/" + service + ".service"
 
   private def parseService(service: String): IO[ParserResult] =
     parseFile(serviceFileName _, service)

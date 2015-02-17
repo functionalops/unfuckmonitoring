@@ -1,3 +1,16 @@
 service mbbx6spp/feedreader:api/1.4.0-g890aef {
+  collector procfs load.avg.1m {
+    path = "loadavg"
+    index = 0
+  }
 
+  collector procfs load.avg.5m {
+    path = "loadavg"
+    index = 1
+  }
+
+  collector procfs load.avg.15m {
+    path = "loadavg"
+    index = 2
+  }
 }

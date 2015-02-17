@@ -35,7 +35,7 @@ trait ParserFunctions extends ParserInstances {
       rule {
         "service" ~ whiteSpace ~ namespaceId ~ slash ~ componentId ~ colon ~
         serviceId ~ optional(slash ~ version) ~ whiteSpace ~ "{" ~ whiteSpace ~
-        zeroOrMore(metric) ~ whiteSpace ~
+        (zeroOrMore(metric | collector)) ~ whiteSpace ~
         "}" ~~> ServiceNode.apply
       }
 
@@ -44,6 +44,13 @@ trait ParserFunctions extends ParserInstances {
         "metric" ~ whiteSpace ~ metricScope ~ whiteSpace ~ metricId ~ whiteSpace ~ "{" ~ whiteSpace ~
         zeroOrMore(metricNamedValue) ~
         "}" ~ whiteSpace ~~> MetricNode.apply
+      }
+
+    private def collector: Rule1[CollectorNode] =
+      rule {
+        "collector" ~ whiteSpace ~ collectorType ~ whiteSpace ~ metricId ~ whiteSpace ~ "{" ~ whiteSpace ~
+        zeroOrMore(collectorAttribute) ~
+        "}" ~ whiteSpace ~~> CollectorNode.apply
       }
 
     private def namespaceId: Rule1[NamespaceIdentifier] =
@@ -59,19 +66,51 @@ trait ParserFunctions extends ParserInstances {
       rule { oneOrMore(alphaNumDashDot) ~> VersionNode }
 
     private def metricId: Rule1[MetricIdentifier] =
-      rule { oneOrMore(alphaNumDashDot | ":" | "/" | "+" | "|") ~> IdentifierNode }
+      rule {
+        oneOrMore(alphaNumDashDot | ":" | "/" | "+" | "|") ~> IdentifierNode
+      }
 
     private def metricNamedValue: Rule1[MetricNamedValueNode] =
-      rule { whiteSpace ~ (descriptionNamedNode | categoryNamedNode | unitNamedNode) ~ whiteSpace }
+      rule {
+        whiteSpace ~
+        ( descriptionNamedNode
+        | categoryNamedNode
+        | unitNamedNode) ~
+        whiteSpace
+      }
+
+    private def collectorAttribute: Rule1[CollectorNamedValueNode] =
+      rule {
+        whiteSpace ~
+        ( collectorPathNamedNode
+        | collectorIndexNamedNode
+        | collectorArgumentsNamedNode ) ~
+        whiteSpace
+      }
+
+    private def collectorPathNamedNode: Rule1[CollectorNamedValueNode] =
+      rule {
+        "path" ~ assign ~ string ~~> CollectorPathNamedNode.apply
+      }
+
+    private def collectorIndexNamedNode: Rule1[CollectorNamedValueNode] =
+      rule {
+        "index" ~ assign ~ index ~~> CollectorIndexNamedNode.apply
+      }
+
+    private def collectorArgumentsNamedNode: Rule1[CollectorNamedValueNode] =
+      rule {
+        "arguments" ~ assign ~ arguments ~~> CollectorArgumentsNamedNode.apply
+      }
 
     private def descriptionNamedNode: Rule1[MetricNamedValueNode] =
-      rule { "description" ~ assign ~ string         ~~> DescriptionNamedNode.apply }
+      rule { "description" ~ assign ~ string ~~> DescriptionNamedNode.apply }
 
     private def categoryNamedNode: Rule1[MetricNamedValueNode] =
-      rule { "category"    ~ assign ~ metricCategory ~~> CategoryNamedNode.apply }
+      rule { "category" ~ assign ~ metricCategory ~~> CategoryNamedNode.apply }
 
     private def unitNamedNode: Rule1[MetricNamedValueNode] =
-      rule { "unit"        ~ assign ~ metricUnit     ~~> UnitNamedNode.apply }
+      rule { "unit" ~ assign ~ metricUnit ~~> UnitNamedNode.apply }
 
     private def metricCategory: Rule1[MetricCategory] =
       rule {
@@ -89,6 +128,13 @@ trait ParserFunctions extends ParserInstances {
         "pod"         ~> (_ => MetricScope.PodScope) |
         "host"        ~> (_ => MetricScope.HostScope) |
         "instance"    ~> (_ => MetricScope.InstanceScope)
+      }
+
+    private def collectorType: Rule1[CollectorType] =
+      rule {
+        "procfs"      ~> (_ => CollectorType.procfs) |
+        "command"     ~> (_ => CollectorType.command) |
+        "sigar"       ~> (_ => CollectorType.sigar)
       }
 
     /**
@@ -117,28 +163,59 @@ trait ParserFunctions extends ParserInstances {
     private def string: Rule1[StringNode] =
       rule { "\"" ~ zeroOrMore(character) ~> StringNode ~ "\"" }
 
-    private def character: Rule0 = rule { escapedChar | normalChar }
-    private def normalChar: Rule0 = rule { !anyOf("\"\\") ~ ANY }
-    private def escapedChar: Rule0 = rule { "\\" ~ (anyOf("\"\\/bfnrt") | unicode) }
-    private def unicode: Rule0 = rule { "u" ~ hexDigit ~ hexDigit ~ hexDigit ~ hexDigit }
-    private def hexDigit: Rule0 = rule { "0" - "9" | "a" - "f" | "A" - "F" }
-    private def slash: Rule0 = rule { "/" }
-    private def colon: Rule0 = rule { ":" }
-    private def assign: Rule0 = rule { whiteSpace ~ "=" ~ whiteSpace }
-    private def comma: Rule0 = rule { zeroOrMore(";") }
-    private def whiteSpace: Rule0 = rule { zeroOrMore(anyOf(" \n\r\t\f")) }
-    private def alphaNumDash: Rule0 = rule { alphaNum | "-" }
-    private def alphaNumDashDot: Rule0 = rule { alphaNumDash | "." }
-    private def alphaNum: Rule0 = rule { alpha | digit }
-    private def alpha: Rule0 = rule { "a" - "z" | "A" - "Z" }
-    private def digit: Rule0 = rule { "0" - "9" }
+    private def index: Rule1[IndexNode] =
+      rule { oneOrMore(digit) ~> Integer.parseInt ~~> IndexNode.apply }
+
+    private def arguments: Rule1[Seq[StringNode]] =
+      rule { zeroOrMore(string) }
+
+    private def character: Rule0 =
+      rule { escapedChar | normalChar }
+
+    private def normalChar: Rule0 =
+      rule { !anyOf("\"\\") ~ ANY }
+
+    private def escapedChar: Rule0 =
+      rule { "\\" ~ (anyOf("\"\\/bfnrt") | unicode) }
+
+    private def unicode: Rule0 =
+      rule { "u" ~ hexDigit ~ hexDigit ~ hexDigit ~ hexDigit }
+
+    private def hexDigit: Rule0 =
+      rule { "0" - "9" | "a" - "f" | "A" - "F" }
+
+    private def slash: Rule0 =
+      rule { "/" }
+
+    private def colon: Rule0 =
+      rule { ":" }
+
+    private def assign: Rule0 =
+      rule { whiteSpace ~ "=" ~ whiteSpace }
+
+    private def comma: Rule0 =
+      rule { zeroOrMore(";") }
+
+    private def whiteSpace: Rule0 =
+      rule { zeroOrMore(anyOf(" \n\r\t\f")) }
+
+    private def alphaNumDash: Rule0 =
+      rule { alphaNum | "-" }
+
+    private def alphaNumDashDot: Rule0 =
+      rule { alphaNumDash | "." }
+
+    private def alphaNum: Rule0 =
+      rule { alpha | digit }
+
+    private def alpha: Rule0 =
+      rule { "a" - "z" | "A" - "Z" }
+
+    private def digit: Rule0 =
+      rule { "0" - "9" }
 
     import scala.language.implicitConversions
     implicit override def toRule(s: String) =
-      if (s.endsWith(" ")) {
-        str(s.trim) ~ whiteSpace
-      } else {
-        str(s)
-      }
+      if (s.endsWith(" ")) { str(s.trim) ~ whiteSpace } else { str(s) }
   }
 }
